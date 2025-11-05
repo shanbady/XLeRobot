@@ -117,7 +117,7 @@ python /your_dir/lerobot/src/lerobot/record.py \
    - **Stop Recording**: Stops the dataset recording session
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/89a1ac43-a7b4-4b7c-b263-1420a7a006fa" width="45%">
+  <img src="https://github.com/user-attachments/assets/4b9004d7-6d4c-47c6-9d87-043e2a120bad" width="45%">
   <img src="https://github.com/user-attachments/assets/b2bddd83-1a95-4aee-bbb5-4f13e927f7c7" width="45%">
 </p>
 
