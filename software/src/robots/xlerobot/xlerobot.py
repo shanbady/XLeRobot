@@ -16,6 +16,7 @@
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from functools import cached_property
 from itertools import chain
 from typing import Any
@@ -126,6 +127,11 @@ class XLerobot(Robot):
         self.head_motors = [motor for motor in self.bus1.motors if motor.startswith("head")]
         self.base_motors = [motor for motor in self.bus2.motors if motor.startswith("base")]
         self.cameras = make_cameras_from_configs(config.cameras)
+        self._camera_executor = (
+            ThreadPoolExecutor(max_workers=max(1, len(self.cameras)))
+            if self.cameras
+            else None
+        )
 
     @property
     def _state_ft(self) -> dict[str, type]:
@@ -171,6 +177,14 @@ class XLerobot(Robot):
         return self.bus1.is_connected and self.bus2.is_connected and all(
             cam.is_connected for cam in self.cameras.values()
         )
+
+    def _capture_camera_frame(self, cam_key: str):
+        cam = self.cameras[cam_key]
+        start = time.perf_counter()
+        frame = cam.async_read()
+        dt_ms = (time.perf_counter() - start) * 1e3
+        logger.debug(f"{self} read {cam_key}: {dt_ms:.1f}ms")
+        return frame
 
     def connect(self, calibrate: bool = True) -> None:
         if self.is_connected:
@@ -545,11 +559,21 @@ class XLerobot(Robot):
         logger.debug(f"{self} read state: {dt_ms:.1f}ms")
 
         # Capture images from cameras
-        for cam_key, cam in self.cameras.items():
-            start = time.perf_counter()
-            obs_dict[cam_key] = cam.async_read()
-            dt_ms = (time.perf_counter() - start) * 1e3
-            logger.debug(f"{self} read {cam_key}: {dt_ms:.1f}ms")
+        if self.cameras:
+            if self._camera_executor is None:
+                for cam_key in self.cameras:
+                    obs_dict[cam_key] = self._capture_camera_frame(cam_key)
+            else:
+                futures = {
+                    self._camera_executor.submit(self._capture_camera_frame, cam_key): cam_key
+                    for cam_key in self.cameras
+                }
+                for future, cam_key in futures.items():
+                    try:
+                        obs_dict[cam_key] = future.result()
+                    except Exception:
+                        logger.exception("%s failed to read %s", self, cam_key)
+                        obs_dict[cam_key] = None
 
         return obs_dict
 
@@ -633,5 +657,8 @@ class XLerobot(Robot):
         self.bus2.disconnect(self.config.disable_torque_on_disconnect)
         for cam in self.cameras.values():
             cam.disconnect()
+
+        if self._camera_executor is not None:
+            self._camera_executor.shutdown(wait=True)
 
         logger.info(f"{self} disconnected.")
